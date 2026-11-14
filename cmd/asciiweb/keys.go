@@ -60,6 +60,8 @@ func readKeys(out chan<- key) {
 		default:
 			if r >= 32 {
 				out <- key{r: r}
+			} else if r >= 1 && r <= 26 {
+				out <- key{name: "ctrl", r: r + 96} // ctrl-b = 'b'
 			}
 		}
 	}

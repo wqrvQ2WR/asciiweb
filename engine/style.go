@@ -19,7 +19,7 @@ func RuneWidth(r rune) int { return rw.RuneWidth(r) }
 // Style of one cell. FG==0 means default; otherwise RGB|0xRRGGBB.
 // T is the target id (index+1) when the cell belongs to a link or control.
 type Style struct {
-	FG                            uint32
+	FG, BG                        uint32
 	Bold, Italic, Under, Dim, Rev bool
 	T                             int32
 }
@@ -129,3 +129,6 @@ func maxWidth(ls []Line) int {
 	}
 	return m
 }
+
+// Text converts a string to cells in style st.
+func Text(s string, st Style) Line { return cells(s, st) }

@@ -87,6 +87,10 @@ class GridPaints(val px: Float) {
             val x0 = i * cellW
             val fg = color(s0)
             val p = pick(s0)
+            if (s0.bg != 0) {
+                fill.color = 0xFF000000.toInt() or (s0.bg and 0xFFFFFF)
+                c.drawRect(x0, 0f, j * cellW, lineH, fill)
+            }
             if (rev) {
                 fill.color = fg
                 c.drawRect(x0, 0f, j * cellW, lineH, fill)
@@ -130,12 +134,47 @@ class GridPaints(val px: Float) {
     private fun drawGlyph(c: NativeCanvas, r: Int, col: Int, line: List<Cell>, p: Paint) {
         val x = col * cellW
         if (drawBox(c, r, x)) return
+        if (r in 0x2800..0x28FF) { drawBraille(c, r - 0x2800, x, p); return }
+        if (drawShade(c, r, x, p)) return
         val wide = col + 1 < line.size && line[col + 1].r == 0
         val s = String(Character.toChars(r))
         val gw = p.measureText(s)
         val cw = if (wide) cellW * 2 else cellW
         val dx = if (gw < cw) (cw - gw) / 2 else 0f
         c.drawText(s, x + dx, baseline, p)
+    }
+
+    /** Braille patterns are drawn as dots so they stay crisp whatever the font. */
+    private fun drawBraille(c: NativeCanvas, bits: Int, x: Float, p: Paint) {
+        fill.color = p.color
+        val rad = min(cellW / 4.2f, lineH / 8.6f) * (if (p.isFakeBoldText || p.typeface?.isBold == true) 1.2f else 0.95f)
+        val dots = intArrayOf(1, 2, 4, 64, 8, 16, 32, 128) // column 0 top..bottom, column 1 top..bottom
+        for (i in 0 until 8) if (bits and dots[i] != 0) {
+            val cx = x + cellW * (if (i < 4) 0.28f else 0.72f)
+            val cy = lineH * (0.125f + 0.25f * (i % 4))
+            c.drawCircle(cx, cy, rad, fill)
+        }
+    }
+
+    /** Half block and shade characters. */
+    private fun drawShade(c: NativeCanvas, r: Int, x: Float, p: Paint): Boolean {
+        val a = when (r) {
+            0x2591 -> 0.25f
+            0x2592 -> 0.5f
+            0x2593 -> 0.75f
+            0x2588 -> 1f
+            0x2580 -> -1f
+            else -> return false
+        }
+        fill.color = p.color
+        if (a < 0) {
+            c.drawRect(x, 0f, x + cellW, lineH / 2f, fill)
+        } else {
+            fill.alpha = (255 * a).toInt()
+            c.drawRect(x, 0f, x + cellW, lineH, fill)
+            fill.alpha = 255
+        }
+        return true
     }
 
     /** Box drawing characters are drawn as lines so borders connect between rows. */

@@ -3,6 +3,7 @@ package com.hayoonjae.asciiweb.engine
 /** Style of one cell. fg==0 is the default color, otherwise RGBF or 0xRRGGBB. t is the target id (index+1). */
 data class Style(
     val fg: Int = 0,
+    val bg: Int = 0,
     val bold: Boolean = false,
     val italic: Boolean = false,
     val under: Boolean = false,

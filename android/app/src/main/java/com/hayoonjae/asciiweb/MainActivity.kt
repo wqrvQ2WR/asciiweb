@@ -10,6 +10,9 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -72,41 +75,66 @@ private val Scheme = darkColorScheme(
 
 class MainActivity : ComponentActivity() {
     private val vm: BrowserVm by viewModels()
+    private val live: LiveVm by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ThumbDecoder.install()
         enableEdgeToEdge()
-        setContent { MaterialTheme(colorScheme = Scheme) { App(vm) } }
         if (savedInstanceState == null) pendingStart = intent?.dataString
+        live.initialUrl = pendingStart ?: live.lastUrl()
+        setContent { MaterialTheme(colorScheme = Scheme) { App(vm) } }
     }
 
     private var pendingStart: String? = null
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        intent.dataString?.let { if (vm.ready) vm.open(it) else pendingStart = it }
+        intent.dataString?.let {
+            if (live.settings.real) live.open(it)
+            else if (vm.ready) vm.open(it) else pendingStart = it
+        }
     }
 
     override fun onStop() {
         vm.saveLast()
+        live.saveLast()
         super.onStop()
     }
 
     @Composable
     fun App(vm: BrowserVm) {
+        val real = live.settings.real
         var kickoff by remember { mutableStateOf(false) }
-        if (vm.ready && !kickoff && vm.page == null && !vm.loading) {
+        if (!real && vm.ready && !kickoff && vm.page == null && !vm.loading) {
             kickoff = true
             vm.start(pendingStart)
             pendingStart = null
         }
-        BackHandler(enabled = vm.canBack) { vm.back() }
+        BackHandler(enabled = if (real) live.canBack else vm.canBack) {
+            if (real) live.webView?.goBack() else vm.back()
+        }
         Column(Modifier.fillMaxSize().background(Bg).safeDrawingPadding()) {
-            TopBar(vm)
-            Box(Modifier.fillMaxWidth().height(2.dp).background(if (vm.loading) Brand else SolidColor(Color(0xFF2A2A3A))))
+            if (real) {
+                TopBar(
+                    urlText = live.urlText, canBack = live.canBack, canForward = false,
+                    onBack = { live.webView?.goBack() }, onGo = { live.open(it) },
+                    onReload = { live.webView?.reload() }, onForward = { live.webView?.goForward() },
+                    onHome = { live.open(live.settings.home) },
+                    vm = vm,
+                )
+            } else {
+                TopBar(
+                    urlText = vm.urlText, canBack = vm.canBack, canForward = vm.canForward,
+                    onBack = { vm.back() }, onGo = { vm.open(it) }, onReload = { vm.reload() },
+                    onForward = { vm.forward() }, onHome = { vm.open("about:home") },
+                    vm = vm,
+                )
+            }
+            val loading = if (real) live.loading else vm.loading
+            Box(Modifier.fillMaxWidth().height(2.dp).background(if (loading) Brand else SolidColor(Color(0xFF2A2A3A))))
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                GridView(vm)
+                if (real) LiveView(live, vm.textSp) else GridView(vm)
                 vm.message?.let {
                     Text(
                         it,
@@ -124,15 +152,20 @@ class MainActivity : ComponentActivity() {
         }
         EditDialog(vm)
         SelectDialog(vm)
+        SettingsDialog(vm)
     }
 
     @Composable
-    private fun TopBar(vm: BrowserVm) {
+    private fun TopBar(
+        urlText: String, canBack: Boolean, canForward: Boolean,
+        onBack: () -> Unit, onGo: (String) -> Unit, onReload: () -> Unit,
+        onForward: () -> Unit, onHome: () -> Unit, vm: BrowserVm,
+    ) {
         var menu by remember { mutableStateOf(false) }
-        var tf by remember { mutableStateOf(TextFieldValue(vm.urlText)) }
+        var tf by remember { mutableStateOf(TextFieldValue(urlText)) }
         var focused by remember { mutableStateOf(false) }
         val focus = LocalFocusManager.current
-        if (!focused && tf.text != vm.urlText) tf = TextFieldValue(vm.urlText)
+        if (!focused && tf.text != urlText) tf = TextFieldValue(urlText)
         LaunchedEffect(focused) {
             if (focused) {
                 kotlinx.coroutines.delay(80)
@@ -143,8 +176,8 @@ class MainActivity : ComponentActivity() {
             Modifier.fillMaxWidth().background(Panel).padding(horizontal = 4.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = { vm.back() }, enabled = vm.canBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, "back", tint = if (vm.canBack) Color.White else Color(0xFF555566))
+            IconButton(onClick = onBack, enabled = canBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, "back", tint = if (canBack) Color.White else Color(0xFF555566))
             }
             Box(
                 Modifier.weight(1f).height(40.dp).background(Field, RoundedCornerShape(20.dp)).padding(horizontal = 14.dp),
@@ -159,7 +192,7 @@ class MainActivity : ComponentActivity() {
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
                     keyboardActions = KeyboardActions(onGo = {
                         focus.clearFocus()
-                        vm.open(tf.text)
+                        onGo(tf.text)
                     }),
                     modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
                     decorationBox = { inner ->
@@ -168,16 +201,13 @@ class MainActivity : ComponentActivity() {
                     },
                 )
             }
-            IconButton(onClick = { vm.reload() }) { Icon(Icons.Filled.Refresh, "reload", tint = Color.White) }
+            IconButton(onClick = onReload) { Icon(Icons.Filled.Refresh, "reload", tint = Color.White) }
             Box {
                 IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "menu", tint = Color.White) }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    DropdownMenuItem(text = { Text("Home") }, leadingIcon = { Icon(Icons.Filled.Home, null) }, onClick = { menu = false; vm.open("about:home") })
-                    DropdownMenuItem(text = { Text("Forward") }, enabled = vm.canForward, onClick = { menu = false; vm.forward() })
-                    DropdownMenuItem(text = { Text(if (vm.images) "Images: on" else "Images: off") }, onClick = { vm.toggleImages() })
-                    DropdownMenuItem(text = { Text(if (vm.color) "Color: on" else "Color: off") }, onClick = { vm.toggleColor() })
-                    DropdownMenuItem(text = { Text("Text size +") }, onClick = { vm.changeTextSize(1f) })
-                    DropdownMenuItem(text = { Text("Text size -") }, onClick = { vm.changeTextSize(-1f) })
+                    DropdownMenuItem(text = { Text("Home") }, leadingIcon = { Icon(Icons.Filled.Home, null) }, onClick = { menu = false; onHome() })
+                    DropdownMenuItem(text = { Text("Forward") }, enabled = canForward || live.settings.real, onClick = { menu = false; onForward() })
+                    DropdownMenuItem(text = { Text("Settings") }, onClick = { menu = false; live.showSettings = true })
                 }
             }
         }
@@ -226,6 +256,65 @@ class MainActivity : ComponentActivity() {
                             color = if (i == p.selectedIndex(t.node)) Color(0xFFFF4D9D) else Color.White,
                             modifier = Modifier.fillMaxWidth().clickable { vm.commitSelect(i) }.padding(vertical = 12.dp),
                         )
+                    }
+                }
+            },
+        )
+    }
+
+    @Composable
+    private fun SettingRow(label: String, value: String, onClick: () -> Unit) {
+        Row(
+            Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 11.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(label, color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
+            Text(value, color = Color(0xFFFF4D9D), fontSize = 14.sp)
+        }
+    }
+
+    @Composable
+    private fun SettingsDialog(vm: BrowserVm) {
+        if (!live.showSettings) return
+        val s = live.settings
+        fun <T> next(list: List<T>, cur: T): T = list[(list.indexOf(cur).coerceAtLeast(0) + 1) % list.size]
+        AlertDialog(
+            onDismissRequest = { live.showSettings = false },
+            title = { Text("Settings") },
+            confirmButton = { TextButton(onClick = { live.showSettings = false }) { Text("Close") } },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    SettingRow("Rendering", if (s.real) "real page" else "text reflow") { live.update(s.copy(real = !s.real)) }
+                    SettingRow("Style", s.style + "  " + com.hayoonjae.asciiweb.engine.LiveSettings.STYLE_DESC[s.style]) {
+                        live.update(s.copy(style = next(com.hayoonjae.asciiweb.engine.LiveSettings.STYLES, s.style)))
+                    }
+                    SettingRow("Color", if (s.color) "on" else "off") { live.update(s.copy(color = !s.color)) }
+                    SettingRow("Bold characters", if (s.bold) "on" else "off") { live.update(s.copy(bold = !s.bold)) }
+                    SettingRow("Invert (dark ink on light page)", s.invert) {
+                        live.update(s.copy(invert = next(com.hayoonjae.asciiweb.engine.LiveSettings.INVERTS, s.invert)))
+                    }
+                    SettingRow("Contrast", "%+d".format(s.contrast)) {
+                        live.update(s.copy(contrast = if (s.contrast >= 4) -4 else s.contrast + 1))
+                    }
+                    SettingRow("Page width (px)", s.pageWidth.toString()) {
+                        live.update(s.copy(pageWidth = next(com.hayoonjae.asciiweb.engine.LiveSettings.WIDTHS, s.pageWidth)))
+                    }
+                    SettingRow("Sampling quality", "x${s.quality}") { live.update(s.copy(quality = if (s.quality >= 3) 1 else s.quality + 1)) }
+                    SettingRow("Frame rate (fps)", s.fps.toString()) {
+                        live.update(s.copy(fps = next(com.hayoonjae.asciiweb.engine.LiveSettings.FPSES, s.fps)))
+                    }
+                    SettingRow("Mobile sites", if (s.mobile) "on" else "off") { live.update(s.copy(mobile = !s.mobile)) }
+                    SettingRow("Search engine", s.search) {
+                        live.update(s.copy(search = next(com.hayoonjae.asciiweb.engine.LiveSettings.SEARCHES, s.search)))
+                    }
+                    SettingRow("Home page", s.home.removePrefix("https://")) {
+                        if (live.urlText.startsWith("http")) live.update(s.copy(home = live.urlText))
+                    }
+                    SettingRow("Text size (smaller = finer)", "%.0f".format(vm.textSp)) {
+                        vm.textSp = if (vm.textSp >= 20f) 7f else vm.textSp + 1f
+                        vm.changeTextSize(0f)
+                        live.epoch++
                     }
                 }
             },

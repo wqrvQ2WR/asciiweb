@@ -39,6 +39,14 @@ func SGR(s Style, depth int) string {
 			fmt.Fprintf(&sb, ";38;5;%d", to256(r, g, b))
 		}
 	}
+	if s.BG != 0 && depth != NoColor {
+		r, g, b := int(s.BG>>16&255), int(s.BG>>8&255), int(s.BG&255)
+		if depth == TrueColor {
+			fmt.Fprintf(&sb, ";48;2;%d;%d;%d", r, g, b)
+		} else {
+			fmt.Fprintf(&sb, ";48;5;%d", to256(r, g, b))
+		}
+	}
 	sb.WriteByte('m')
 	return sb.String()
 }
