@@ -49,7 +49,10 @@ class BrowserVm(app: Application) : AndroidViewModel(app) {
     var choosing by mutableStateOf<Target?>(null)
     var flash by mutableIntStateOf(0)
 
-    private var cols = 0
+    private var colsState by mutableIntStateOf(0)
+    private var cols: Int
+        get() = colsState
+        set(v) { colsState = v }
     private var gen = 0
     private var started = false
     private var relayoutJob: Job? = null
@@ -61,7 +64,7 @@ class BrowserVm(app: Application) : AndroidViewModel(app) {
     }
 
     /** Called by the UI once it knows how many columns fit. */
-    fun setCols(c: Int) {
+    fun updateCols(c: Int) {
         if (c < 8 || c == cols) return
         cols = c
         if (!started) {

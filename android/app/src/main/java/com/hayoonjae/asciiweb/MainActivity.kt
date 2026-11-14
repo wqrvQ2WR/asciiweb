@@ -37,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -132,6 +133,12 @@ class MainActivity : ComponentActivity() {
         var focused by remember { mutableStateOf(false) }
         val focus = LocalFocusManager.current
         if (!focused && tf.text != vm.urlText) tf = TextFieldValue(vm.urlText)
+        LaunchedEffect(focused) {
+            if (focused) {
+                kotlinx.coroutines.delay(80)
+                tf = tf.copy(selection = TextRange(0, tf.text.length))
+            }
+        }
         Row(
             Modifier.fillMaxWidth().background(Panel).padding(horizontal = 4.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -154,10 +161,7 @@ class MainActivity : ComponentActivity() {
                         focus.clearFocus()
                         vm.open(tf.text)
                     }),
-                    modifier = Modifier.fillMaxWidth().onFocusChanged {
-                        if (it.isFocused && !focused) tf = tf.copy(selection = TextRange(0, tf.text.length))
-                        focused = it.isFocused
-                    },
+                    modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
                     decorationBox = { inner ->
                         if (tf.text.isEmpty()) Text("search or type a URL", color = Color(0xFF8A8AA0), fontSize = 14.sp)
                         inner()

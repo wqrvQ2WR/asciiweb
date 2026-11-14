@@ -179,7 +179,7 @@ fun GridView(vm: BrowserVm, modifier: Modifier = Modifier) {
     val lineDp = with(density) { paints.lineH.toDp() }
     BoxWithConstraints(modifier.fillMaxSize()) {
         val cols = (constraints.maxWidth / paints.cellW).toInt()
-        LaunchedEffect(cols) { if (cols > 0) vm.setCols(cols) }
+        LaunchedEffect(cols) { if (cols > 0) vm.updateCols(cols) }
         val listState = rememberLazyListState()
         LaunchedEffect(listState) {
             snapshotFlow { listState.firstVisibleItemIndex }.collect { vm.scrollNow = it }
