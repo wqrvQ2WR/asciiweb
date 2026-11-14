@@ -60,7 +60,7 @@ done:
 	grid := render.Convert(img, cols, rows, set, depth)
 	if set.Text {
 		time.Sleep(2 * time.Second)
-		grid = render.OverlayText(grid, s.Words(), set, depth)
+		grid = render.OverlayText(grid, s.Words(), set, depth, s.FrameScroll())
 	}
 	for _, l := range grid {
 		if depth == engine.NoColor {

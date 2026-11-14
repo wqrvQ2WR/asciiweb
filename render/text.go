@@ -24,6 +24,7 @@ type Word struct {
 	B  int     `json:"b"`
 	VW float64 `json:"-"`
 	VH float64 `json:"-"`
+	SY float64 `json:"-"` // page scroll (CSS px) when the word was read
 }
 
 // TextScript lists the visible words of the page. It returns a JSON object
@@ -32,7 +33,7 @@ const TextScript = `(function(){
 var W=innerWidth,H=innerHeight,out=[],n=0;
 var tw=document.createTreeWalker(document.body||document.documentElement,NodeFilter.SHOW_TEXT,null);
 var rg=document.createRange(),node;
-while((node=tw.nextNode())&&n<2500){
+while((node=tw.nextNode())&&n<1500){
  var s=node.nodeValue; if(!s||!/\S/.test(s))continue;
  var el=node.parentElement; if(!el)continue;
  var tg=el.tagName; if(tg==='SCRIPT'||tg==='STYLE'||tg==='NOSCRIPT'||tg==='TEXTAREA')continue;
@@ -41,26 +42,26 @@ while((node=tw.nextNode())&&n<2500){
  var cs=getComputedStyle(el); if(cs.visibility==='hidden'||cs.display==='none'||+cs.opacity===0)continue;
  var m=/rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(cs.color)||[0,0,0,0];
  var re=/\S+/g,mm;
- while((mm=re.exec(s))&&n<2500){
+ while((mm=re.exec(s))&&n<1500){
   rg.setStart(node,mm.index); rg.setEnd(node,mm.index+mm[0].length);
   var r=rg.getBoundingClientRect(); if(r.width===0||r.bottom<0||r.top>H||r.right<0||r.left>W)continue;
   out.push({t:mm[0],x:r.left,y:r.top,w:r.width,h:r.height,r:+m[1],g:+m[2],b:+m[3]}); n++;
  }
 }
-return JSON.stringify({w:W,h:H,words:out});
+return JSON.stringify({w:W,h:H,sy:(window.pageYOffset||0),words:out});
 })()`
 
 // ParseWords decodes the result of TextScript.
 func ParseWords(js string) []Word {
 	var res struct {
-		W, H  float64
-		Words []Word `json:"words"`
+		W, H, SY float64
+		Words    []Word `json:"words"`
 	}
 	if json.Unmarshal([]byte(js), &res) != nil {
 		return nil
 	}
 	for i := range res.Words {
-		res.Words[i].VW, res.Words[i].VH = res.W, res.H
+		res.Words[i].VW, res.Words[i].VH, res.Words[i].SY = res.W, res.H, res.SY
 	}
 	return res.Words
 }
@@ -98,7 +99,7 @@ func textColor(r, g, b int, color bool) uint32 {
 // OverlayText writes the page's words onto the grid as real characters.
 // Words are grouped into text lines first, each line owns one grid row, and
 // the art under each word is cleared so the text stays clean.
-func OverlayText(grid []engine.Line, words []Word, s Settings, depth int) []engine.Line {
+func OverlayText(grid []engine.Line, words []Word, s Settings, depth int, scrollY float64) []engine.Line {
 	if len(words) == 0 || len(grid) == 0 {
 		return grid
 	}
@@ -110,6 +111,10 @@ func OverlayText(grid []engine.Line, words []Word, s Settings, depth int) []engi
 	}
 	cy := func(w Word) float64 { return w.Y + w.H/2 }
 	ws := append([]Word(nil), words...)
+	// words were read at an older scroll position: slide them to where the page is now
+	for i := range ws {
+		ws[i].Y += ws[i].SY - scrollY
+	}
 	sort.Slice(ws, func(i, j int) bool { return cy(ws[i]) < cy(ws[j]) })
 	// group into lines by vertical centre
 	var lines [][]Word
@@ -202,7 +207,7 @@ func (s *Session) textLoop(kick <-chan struct{}) {
 		case <-s.ctx.Done():
 			return
 		}
-		time.Sleep(350 * time.Millisecond) // at most ~3 text reads a second; coalesce kicks
+		time.Sleep(150 * time.Millisecond) // coalesce kicks; text positions are corrected by the scroll offset
 		for len(kick) > 0 {
 			<-kick
 		}

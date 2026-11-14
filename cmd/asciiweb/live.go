@@ -223,7 +223,7 @@ func (u *live) rebuild() {
 	}
 	u.grid = render.Convert(u.img, u.cols, u.frameRows(), u.set, u.depth)
 	if u.set.Text {
-		u.grid = render.OverlayText(u.grid, u.sess.Words(), u.set, u.depth)
+		u.grid = render.OverlayText(u.grid, u.sess.Words(), u.set, u.depth, u.sess.FrameScroll())
 	}
 }
 

@@ -92,6 +92,7 @@ object LiveWeb {
             }
 
             override fun onPageFinished(v: WebView, url: String) {
+                vm.loadedSeq++
                 vm.loading = false
                 vm.urlText = url
                 vm.canBack = v.canGoBack()
@@ -110,6 +111,7 @@ object LiveWeb {
         apply(w, vm.settings, ctx, if (vm.cssWidth > 0) vm.cssWidth else 360)
         vm.webView?.destroy()
         vm.webView = w
+        w.setOnScrollChangeListener { _, _, _, _, _ -> vm.scrolledAt = System.currentTimeMillis() }
         w.loadUrl(vm.initialUrl ?: vm.urlText.ifEmpty { vm.settings.home })
         vm.initialUrl = null
         return w
@@ -210,6 +212,7 @@ fun LiveView(vm: LiveVm, textSp: Float, modifier: Modifier = Modifier) {
                             haveLast = false
                         }
                         val src = android.graphics.Rect(winX, winY, winX + vw, winY + vh)
+                        val scrollAtGrab = web.scrollY
                         val ok = kotlinx.coroutines.suspendCancellableCoroutine<Boolean> { cont ->
                             PixelCopy.request(activity.window, src, bmp, { r -> if (cont.isActive) cont.resume(r == PixelCopy.SUCCESS) {} }, handler)
                         }
@@ -222,35 +225,46 @@ fun LiveView(vm: LiveVm, textSp: Float, modifier: Modifier = Modifier) {
                                 idle = 0
                                 vm.stamp++
                                 val snap = pixels.copyOf()
-                                vm.art = withContext(Dispatchers.Default) { convertScreen(snap, bw, bh, cols, rows, s) }
+                                val art = withContext(Dispatchers.Default) { convertScreen(snap, bw, bh, cols, rows, s) }
+                                vm.artScroll = scrollAtGrab
+                                vm.art = art
                             } else idle++
                         }
                     }
-                    delay(if (idle > 6) 450L else 1000L / s.fps)
+                    val scrolling = System.currentTimeMillis() - vm.scrolledAt < 500
+                    delay(if (scrolling) 45L else if (idle > 6) 450L else 1000L / s.fps)
                 }
             }
         }
 
-        // real page text: read only after the screen changed
+        // real page text: read when the scroll position changed, a page finished loading, or every 2 s.
+        // Reading is limited to ~4 per second so the main thread stays free for touches.
         LaunchedEffect(s.text) {
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                var seen = -1
+                var seenScroll = Int.MIN_VALUE
+                var seenLoad = -1
+                var lastAt = 0L
                 while (true) {
-                    if (s.text && vm.stamp != seen) {
-                        seen = vm.stamp
+                    val now = android.os.SystemClock.uptimeMillis()
+                    val sc = web.scrollY
+                    val due = s.text && (sc != seenScroll || vm.loadedSeq != seenLoad || now - lastAt > 2000)
+                    if (due && now - lastAt >= 250) {
+                        seenScroll = sc
+                        seenLoad = vm.loadedSeq
+                        lastAt = now
                         val res = kotlinx.coroutines.suspendCancellableCoroutine<String?> { cont ->
                             web.evaluateJavascript(TEXT_SCRIPT) { r -> if (cont.isActive) cont.resume(r) {} }
                         }
                         vm.words = withContext(Dispatchers.Default) { parseWords(res) }
-                        delay(350)
-                    } else delay(120)
+                    }
+                    delay(80)
                 }
             }
         }
         if (!s.text && vm.words.isNotEmpty()) vm.words = emptyList()
 
         val lines = remember(vm.art, vm.words, s.text, s.bold, s.color) {
-            if (s.text) overlayText(vm.art, vm.words, s) else vm.art
+            if (s.text) overlayText(vm.art, vm.words, s, vm.artScroll.toFloat(), web.width.toFloat()) else vm.art
         }
         OverlayWindow(screenX, screenY, vw, vh) {
             Canvas(Modifier.fillMaxSize()) {
@@ -311,13 +325,14 @@ private fun parseWords(res: String?): List<Word> {
         val o = org.json.JSONObject(inner)
         val vw = o.getDouble("w").toFloat()
         val vh = o.getDouble("h").toFloat()
+        val sy = o.optDouble("sy", 0.0).toFloat()
         val a = o.getJSONArray("words")
         List(a.length()) { i ->
             val j = a.getJSONObject(i)
             Word(
                 j.getString("t"), j.getDouble("x").toFloat(), j.getDouble("y").toFloat(),
                 j.getDouble("w").toFloat(), j.getDouble("h").toFloat(),
-                j.getInt("r"), j.getInt("g"), j.getInt("b"), vw, vh,
+                j.getInt("r"), j.getInt("g"), j.getInt("b"), vw, vh, sy,
             )
         }
     } catch (e: Exception) {

@@ -74,6 +74,7 @@ type Session struct {
 	set    Settings
 	notify chan struct{}
 	words  []Word
+	frameY float64
 	kick   chan struct{}
 }
 
@@ -114,7 +115,7 @@ func Start(set Settings, w, h int) (*Session, error) {
 		case *page.EventScreencastFrame:
 			id := e.SessionID
 			go chromedp.Run(ctx, page.ScreencastFrameAck(id))
-			s.onFrame(e.Data)
+			s.onFrame(e.Data, e.Metadata.ScrollOffsetY)
 		case *page.EventJavascriptDialogOpening:
 			go chromedp.Run(ctx, page.HandleJavaScriptDialog(true))
 		}
@@ -146,7 +147,7 @@ document.addEventListener('click',function(e){var a=e.target&&e.target.closest&&
 	return s, nil
 }
 
-func (s *Session) onFrame(data string) {
+func (s *Session) onFrame(data string, scrollY float64) {
 	raw, err := base64.StdEncoding.DecodeString(data)
 	if err != nil {
 		return
@@ -167,6 +168,7 @@ func (s *Session) onFrame(data string) {
 	}
 	s.mu.Lock()
 	s.frame = img
+	s.frameY = scrollY
 	s.mu.Unlock()
 	select {
 	case s.notify <- struct{}{}:
@@ -250,6 +252,13 @@ func (s *Session) Frame() image.Image {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.frame
+}
+
+// FrameScroll is the page scroll offset (CSS px) of the latest frame.
+func (s *Session) FrameScroll() float64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.frameY
 }
 
 // Frames signals that a new frame arrived.

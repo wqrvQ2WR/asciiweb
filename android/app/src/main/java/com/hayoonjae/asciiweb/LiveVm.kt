@@ -18,6 +18,9 @@ class LiveVm(app: Application) : AndroidViewModel(app) {
         private set
     var art by mutableStateOf<List<Line>>(emptyList())
     var stamp = 0 // bumps when the captured screen changed
+    var artScroll by mutableIntStateOf(0) // WebView scrollY when the art was captured
+    var scrolledAt = 0L
+    var loadedSeq = 0 // bumps when a page finished loading
     var urlText by mutableStateOf("")
     var title by mutableStateOf("")
     var loading by mutableStateOf(false)

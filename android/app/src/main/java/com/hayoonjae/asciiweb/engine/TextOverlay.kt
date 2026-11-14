@@ -6,6 +6,7 @@ import kotlin.math.abs
 class Word(
     val t: String, val x: Float, val y: Float, val w: Float, val h: Float,
     val r: Int, val g: Int, val b: Int, val vw: Float, val vh: Float,
+    val sy: Float, // page scroll (CSS px) when the word was read
 )
 
 /** Lists the visible words of the page; same script as the desktop version. */
@@ -13,7 +14,7 @@ const val TEXT_SCRIPT = """(function(){
 var W=innerWidth,H=innerHeight,out=[],n=0;
 var tw=document.createTreeWalker(document.body||document.documentElement,NodeFilter.SHOW_TEXT,null);
 var rg=document.createRange(),node;
-while((node=tw.nextNode())&&n<2500){
+while((node=tw.nextNode())&&n<1500){
  var s=node.nodeValue; if(!s||!/\S/.test(s))continue;
  var el=node.parentElement; if(!el)continue;
  var tg=el.tagName; if(tg==='SCRIPT'||tg==='STYLE'||tg==='NOSCRIPT'||tg==='TEXTAREA')continue;
@@ -22,13 +23,13 @@ while((node=tw.nextNode())&&n<2500){
  var cs=getComputedStyle(el); if(cs.visibility==='hidden'||cs.display==='none'||+cs.opacity===0)continue;
  var m=/rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(cs.color)||[0,0,0,0];
  var re=/\S+/g,mm;
- while((mm=re.exec(s))&&n<2500){
+ while((mm=re.exec(s))&&n<1500){
   rg.setStart(node,mm.index); rg.setEnd(node,mm.index+mm[0].length);
   var r=rg.getBoundingClientRect(); if(r.width===0||r.bottom<0||r.top>H||r.right<0||r.left>W)continue;
   out.push({t:mm[0],x:r.left,y:r.top,w:r.width,h:r.height,r:+m[1],g:+m[2],b:+m[3]}); n++;
  }
 }
-return JSON.stringify({w:W,h:H,words:out});
+return JSON.stringify({w:W,h:H,sy:(window.pageYOffset||0),words:out});
 })()"""
 
 /** Dark text becomes light, colored text keeps its hue but is lifted, so it reads on a dark screen. */
@@ -50,14 +51,21 @@ private fun textColor(r: Int, g: Int, b: Int, color: Boolean): Int {
  * Writes the page's words onto the grid as real characters. Words are grouped into text lines, each line
  * owns one row, and the art under every word is cleared first so later clears never erase earlier text.
  */
-fun overlayText(grid: List<Line>, words: List<Word>, s: LiveSettings): List<Line> {
+fun overlayText(grid: List<Line>, words0: List<Word>, s: LiveSettings, scrollPx: Float, viewWidthPx: Float): List<Line> {
+    val words = words0
     if (words.isEmpty() || grid.isEmpty()) return grid
     val rows = grid.size
     val cols = grid[0].size
     val out = Array(rows) { ArrayList(grid[it]) }
     val blank = Cell(' '.code, Style())
     fun cy(w: Word) = w.y + w.h / 2
-    val ws = words.sortedBy { cy(it) }
+    // words were read at an older scroll position: slide them to where the page is now
+    fun shifted(w: Word): Word {
+        if (w.vw <= 0 || viewWidthPx <= 0) return w
+        val curCss = scrollPx / (viewWidthPx / w.vw)
+        return Word(w.t, w.x, w.y + w.sy - curCss, w.w, w.h, w.r, w.g, w.b, w.vw, w.vh, w.sy)
+    }
+    val ws = words.map { shifted(it) }.sortedBy { cy(it) }
     // pass 1: clear
     for (w in ws) {
         if (w.vw <= 0 || w.vh <= 0) continue
