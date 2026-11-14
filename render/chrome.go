@@ -88,6 +88,16 @@ func Start(set Settings, w, h int) (*Session, error) {
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.ExecPath(exe),
 		chromedp.UserDataDir(profile),
+		// fewer processes and services = less memory
+		chromedp.Flag("disable-features", "site-per-process,IsolateOrigins,Translate,OptimizationHints,MediaRouter,AutofillServerCommunication"),
+		chromedp.Flag("disable-extensions", true),
+		chromedp.Flag("disable-component-update", true),
+		chromedp.Flag("disable-background-networking", true),
+		chromedp.Flag("disable-sync", true),
+		chromedp.Flag("disable-default-apps", true),
+		chromedp.Flag("disable-breakpad", true),
+		chromedp.Flag("renderer-process-limit", "2"),
+		chromedp.Flag("js-flags", "--max-old-space-size=256"),
 		chromedp.Flag("hide-scrollbars", true),
 		chromedp.Flag("mute-audio", true),
 		chromedp.Flag("disable-notifications", true),
@@ -292,4 +302,18 @@ func (s *Session) Type(t string) {
 	}
 }
 
-func (s *Session) Close() { s.cancel() }
+// Close shuts the browser down and waits until it has really exited, so no
+// orphaned Chrome processes (and their memory) are left behind.
+func (s *Session) Close() {
+	done := make(chan struct{})
+	go func() {
+		chromedp.Cancel(s.ctx)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(4 * time.Second):
+	}
+	s.cancel()
+	time.Sleep(200 * time.Millisecond)
+}

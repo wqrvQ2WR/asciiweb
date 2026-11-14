@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -126,6 +127,8 @@ func (u *live) say(s string) {
 }
 
 func runLive(set render.Settings, input string) error {
+	debug.SetGCPercent(40)
+	debug.SetMemoryLimit(96 << 20)
 	u := &live{set: set, mode: "page", keys: make(chan key, 128)}
 	u.buildItems()
 	restore, err := initTerm()

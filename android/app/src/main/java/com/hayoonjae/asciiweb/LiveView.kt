@@ -15,6 +15,24 @@ import android.webkit.WebViewClient
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.layout.positionOnScreen
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.compose.ui.platform.LocalView
+import android.view.Gravity
+import android.view.PixelCopy
+import android.view.WindowManager
+import kotlin.coroutines.resume
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -65,7 +83,6 @@ object LiveWeb {
     fun create(ctx: Context, vm: LiveVm): WebView {
         val w = WebView(ctx)
         w.setBackgroundColor(AColor.WHITE)
-        w.setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null) // lets draw() capture it reliably, also after scrolling
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(w, true)
         w.webViewClient = object : WebViewClient() {
@@ -99,7 +116,31 @@ object LiveWeb {
     }
 }
 
-@OptIn(ExperimentalComposeUiApi::class)
+private fun Context.findActivity(): android.app.Activity? {
+    var c = this
+    while (c is android.content.ContextWrapper) {
+        if (c is android.app.Activity) return c
+        c = c.baseContext
+    }
+    return null
+}
+
+/** Cheap fingerprint of a capture, used to skip work when the page did not change. */
+private fun fingerprint(px: IntArray): Int {
+    var h = 17
+    var i = 0
+    while (i < px.size) {
+        h = h * 31 + px[i]
+        i += 13
+    }
+    return h
+}
+
+/**
+ * The page is shown by a normal WebView (GPU, native scrolling). Its composited pixels are copied with
+ * PixelCopy, turned into characters, and shown in a separate click-through overlay window on top.
+ * That keeps memory low and never captures the overlay itself.
+ */
 @Composable
 fun LiveView(vm: LiveVm, textSp: Float, modifier: Modifier = Modifier) {
     val ctx = LocalContext.current
@@ -108,92 +149,157 @@ fun LiveView(vm: LiveVm, textSp: Float, modifier: Modifier = Modifier) {
     val paints = remember(px) { GridPaints(px) }
     val web = remember { LiveWeb.create(ctx, vm) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    BoxWithConstraints(modifier.fillMaxSize()) {
+    var screenX by remember { mutableIntStateOf(0) }
+    var screenY by remember { mutableIntStateOf(0) }
+    var winX by remember { mutableIntStateOf(0) }
+    var winY by remember { mutableIntStateOf(0) }
+    BoxWithConstraints(
+        modifier.fillMaxSize().onGloballyPositioned {
+            val sp = it.positionOnScreen()
+            val wp = it.positionInWindow()
+            screenX = sp.x.toInt(); screenY = sp.y.toInt()
+            winX = wp.x.toInt(); winY = wp.y.toInt()
+        },
+    ) {
         val vw = constraints.maxWidth
         val vh = constraints.maxHeight
         val cols = (vw / paints.cellW).toInt().coerceAtLeast(8)
         val rows = (vh / paints.lineH).toInt().coerceAtLeast(4)
         val s = vm.settings
-        // map overlay coordinates back to WebView coordinates
-        val mx = vw / (cols * paints.cellW)
-        val my = vh / (rows * paints.lineH)
 
-        AndroidView(factory = { web }, modifier = Modifier.fillMaxSize(), update = {})
+        // the page is rendered small (less GPU memory) and shown scaled up; touches map through the scale
+        val rs = (s.renderScale / 100f).coerceIn(0.2f, 1f)
+        val webW = (vw * rs).toInt().coerceAtLeast(64)
+        val webH = (vh * rs).toInt().coerceAtLeast(64)
+        AndroidView(
+            factory = { web },
+            modifier = Modifier
+                .requiredSize(with(density) { webW.toDp() }, with(density) { webH.toDp() })
+                .graphicsLayer(scaleX = vw / webW.toFloat(), scaleY = vh / webH.toFloat(), transformOrigin = TransformOrigin(0f, 0f)),
+            update = {},
+        )
+
         // auto width: about 5 CSS px per cell, so a character spans one to two cells
         val cssW = if (s.pageWidth == 0) maxOf(320, cols * 5) else s.pageWidth
-        LaunchedEffect(vw, cssW, s.mobile) {
+        LaunchedEffect(vw, cssW, s.mobile, s.renderScale) {
             delay(150)
             val changed = vm.cssWidth != 0 && vm.cssWidth != cssW
             vm.cssWidth = cssW
             LiveWeb.apply(web, vm.settings, ctx, cssW)
             if (changed) web.reload()
         }
-        // real page text, refreshed several times a second
-        LaunchedEffect(s.text) {
-            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                while (s.text) {
-                    web.evaluateJavascript(TEXT_SCRIPT) { res -> vm.words = parseWords(res) }
-                    delay(300)
-                }
-                vm.words = emptyList()
-            }
-        }
 
-        LaunchedEffect(cols, rows, s, vm.epoch) {
+        // screen capture -> characters; idle pages cost almost nothing
+        LaunchedEffect(cols, rows, s.style, s.color, s.bold, s.invert, s.contrast, s.quality, s.fps, s.renderScale, vm.epoch) {
+            val activity = ctx.findActivity() ?: return@LaunchedEffect
+            val handler = android.os.Handler(android.os.Looper.getMainLooper())
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 var bmp: Bitmap? = null
                 var pixels = IntArray(0)
+                var lastHash = 0
+                var haveLast = false
+                var idle = 0
                 while (true) {
                     val (sx, sy) = subPixels(s.style)
                     val bw = cols * sx * s.quality
                     val bh = rows * sy * s.quality
-                    if (web.width > 0 && web.height > 0) {
+                    if (web.width > 0 && web.height > 0 && vw > 0) {
                         if (bmp == null || bmp.width != bw || bmp.height != bh) {
                             bmp = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
                             pixels = IntArray(bw * bh)
+                            haveLast = false
                         }
-                        val c = NativeCanvas(bmp)
-                        c.drawColor(AColor.WHITE)
-                        c.scale(bw / web.width.toFloat(), bh / web.height.toFloat())
-                        c.translate(-web.scrollX.toFloat(), -web.scrollY.toFloat())
-                        web.draw(c)
-                        bmp.getPixels(pixels, 0, bw, 0, 0, bw, bh)
-                        val snap = pixels.copyOf()
-                        val grid = withContext(Dispatchers.Default) { convertScreen(snap, bw, bh, cols, rows, s) }
-                        val shown = if (s.text) overlayText(grid, vm.words, s) else grid
-                        if (shown != vm.lines) vm.lines = shown
+                        val src = android.graphics.Rect(winX, winY, winX + vw, winY + vh)
+                        val ok = kotlinx.coroutines.suspendCancellableCoroutine<Boolean> { cont ->
+                            PixelCopy.request(activity.window, src, bmp, { r -> if (cont.isActive) cont.resume(r == PixelCopy.SUCCESS) {} }, handler)
+                        }
+                        if (ok) {
+                            bmp.getPixels(pixels, 0, bw, 0, 0, bw, bh)
+                            val h = fingerprint(pixels)
+                            if (!haveLast || h != lastHash) {
+                                haveLast = true
+                                lastHash = h
+                                idle = 0
+                                vm.stamp++
+                                val snap = pixels.copyOf()
+                                vm.art = withContext(Dispatchers.Default) { convertScreen(snap, bw, bh, cols, rows, s) }
+                            } else idle++
+                        }
                     }
-                    delay(1000L / s.fps)
+                    delay(if (idle > 6) 450L else 1000L / s.fps)
                 }
             }
         }
 
-        val lines = vm.lines
-        Canvas(
-            Modifier
-                .fillMaxSize()
-                .pointerInteropFilter { ev ->
-                    val m = MotionEvent.obtain(ev)
-                    val mat = Matrix()
-                    mat.setScale(mx, my)
-                    m.transform(mat)
-                    web.requestFocus()
-                    web.dispatchTouchEvent(m)
-                    m.recycle()
-                    true
-                },
-        ) {
-            drawRect(androidx.compose.ui.graphics.Color(BG_COLOR))
-            drawIntoCanvas { cv ->
-                val nc = cv.nativeCanvas
-                for ((i, line) in lines.withIndex()) {
-                    nc.save()
-                    nc.translate(0f, i * paints.lineH)
-                    paints.drawLine(nc, line, 0)
-                    nc.restore()
+        // real page text: read only after the screen changed
+        LaunchedEffect(s.text) {
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                var seen = -1
+                while (true) {
+                    if (s.text && vm.stamp != seen) {
+                        seen = vm.stamp
+                        val res = kotlinx.coroutines.suspendCancellableCoroutine<String?> { cont ->
+                            web.evaluateJavascript(TEXT_SCRIPT) { r -> if (cont.isActive) cont.resume(r) {} }
+                        }
+                        vm.words = withContext(Dispatchers.Default) { parseWords(res) }
+                        delay(350)
+                    } else delay(120)
                 }
             }
         }
+        if (!s.text && vm.words.isNotEmpty()) vm.words = emptyList()
+
+        val lines = remember(vm.art, vm.words, s.text, s.bold, s.color) {
+            if (s.text) overlayText(vm.art, vm.words, s) else vm.art
+        }
+        OverlayWindow(screenX, screenY, vw, vh) {
+            Canvas(Modifier.fillMaxSize()) {
+                drawRect(androidx.compose.ui.graphics.Color(BG_COLOR))
+                drawIntoCanvas { cv ->
+                    val nc = cv.nativeCanvas
+                    for ((i, line) in lines.withIndex()) {
+                        nc.save()
+                        nc.translate(0f, i * paints.lineH)
+                        paints.drawLine(nc, line, 0)
+                        nc.restore()
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** A full-size window above the page that lets every touch and key fall through to the page. */
+@Composable
+private fun OverlayWindow(x: Int, y: Int, w: Int, h: Int, content: @Composable () -> Unit) {
+    if (w <= 0 || h <= 0) return
+    Dialog(
+        onDismissRequest = {},
+        properties = DialogProperties(
+            dismissOnBackPress = false, dismissOnClickOutside = false,
+            usePlatformDefaultWidth = false, decorFitsSystemWindows = false,
+        ),
+    ) {
+        val window = (LocalView.current.parent as? DialogWindowProvider)?.window
+        SideEffect {
+            window?.let {
+                it.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(0))
+                it.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+                it.addFlags(
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                )
+                val lp = it.attributes
+                lp.gravity = Gravity.TOP or Gravity.START
+                lp.x = x
+                lp.y = y
+                lp.width = w
+                lp.height = h
+                lp.dimAmount = 0f
+                it.attributes = lp
+            }
+        }
+        content()
     }
 }
 

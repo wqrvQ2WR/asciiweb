@@ -27,7 +27,7 @@ type Settings struct {
 }
 
 func Default() Settings {
-	return Settings{Bold: true, Text: true, Style: "ascii", Color: "auto", Invert: "auto", PageWidth: 0, JPEG: 70, FPS: 10, Search: "duckduckgo", Home: "https://duckduckgo.com"}
+	return Settings{Bold: true, Text: true, Style: "ascii", Color: "auto", Invert: "auto", PageWidth: 0, JPEG: 60, FPS: 6, Search: "duckduckgo", Home: "https://duckduckgo.com"}
 }
 
 // Option lists shown in the settings screen.

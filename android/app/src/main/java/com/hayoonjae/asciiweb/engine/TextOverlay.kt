@@ -46,57 +46,71 @@ private fun textColor(r: Int, g: Int, b: Int, color: Boolean): Int {
     return rgb(r, g, b)
 }
 
-/** Writes the page's words onto the grid as real characters; the art under each word is cleared. */
+/**
+ * Writes the page's words onto the grid as real characters. Words are grouped into text lines, each line
+ * owns one row, and the art under every word is cleared first so later clears never erase earlier text.
+ */
 fun overlayText(grid: List<Line>, words: List<Word>, s: LiveSettings): List<Line> {
     if (words.isEmpty() || grid.isEmpty()) return grid
     val rows = grid.size
     val cols = grid[0].size
     val out = Array(rows) { ArrayList(grid[it]) }
-    val sorted = words.sortedWith { a, b ->
-        if (abs(a.y - b.y) > a.h / 2) a.y.compareTo(b.y) else a.x.compareTo(b.x)
-    }
-    val rowLine = HashMap<Int, Float>()
-    val cursor = HashMap<Int, Int>()
-    val prevEnd = HashMap<Int, Float>()
     val blank = Cell(' '.code, Style())
-    for (w in sorted) {
+    fun cy(w: Word) = w.y + w.h / 2
+    val ws = words.sortedBy { cy(it) }
+    // pass 1: clear
+    for (w in ws) {
         if (w.vw <= 0 || w.vh <= 0) continue
         val r0 = (w.y / w.vh * rows).toInt()
         val r1 = ((w.y + w.h) / w.vh * rows).toInt()
-        var row = ((w.y + w.h / 2) / w.vh * rows).toInt()
-        if (row < 0 || row >= rows) continue
-        val y = rowLine[row]
-        if (y != null && abs(y - w.y) > w.h / 2) {
-            row++
-            if (row >= rows) continue
-            val y2 = rowLine[row]
-            if (y2 != null && abs(y2 - w.y) > w.h / 2) continue
-        }
-        rowLine[row] = w.y
         val c0 = (w.x / w.vw * cols).toInt()
         val c1 = ((w.x + w.w) / w.vw * cols).toInt()
         for (r in maxOf(r0, 0)..minOf(r1, rows - 1)) for (c in maxOf(c0, 0)..minOf(c1, cols - 1)) out[r][c] = blank
-        var col = c0
-        cursor[row]?.let { cur ->
-            // words of one sentence are packed together; far-apart columns keep their place
-            val pxPerChar = w.w / w.t.codePointCount(0, w.t.length)
-            val gap = w.x - (prevEnd[row] ?: 0f)
-            if (gap < 2.2f * pxPerChar || cur > col) col = cur
+    }
+    // group into lines by vertical centre
+    val lines = ArrayList<ArrayList<Word>>()
+    val lineCy = ArrayList<Float>()
+    for (w in ws) {
+        val last = lines.lastOrNull()
+        if (last != null && abs(cy(w) - lineCy.last()) <= 0.6f * maxOf(w.h, last[0].h)) last.add(w)
+        else {
+            lines.add(arrayListOf(w)); lineCy.add(cy(w))
         }
-        val st = Style(fg = textColor(w.r, w.g, w.b, s.color), bold = s.bold)
-        var i = 0
-        while (i < w.t.length) {
-            val cp = w.t.codePointAt(i)
-            i += Character.charCount(cp)
-            val cw = runeWidth(cp)
-            if (cw == 0) continue
-            if (col < 0 || col + cw > cols) break
-            out[row][col] = Cell(cp, st)
-            if (cw == 2) out[row][col + 1] = Cell(0, st)
-            col += cw
+    }
+    // pass 2: write
+    val owner = HashSet<Int>()
+    for ((li, line) in lines.withIndex()) {
+        line.sortBy { it.x }
+        val w0 = line[0]
+        if (w0.vw <= 0 || w0.vh <= 0) continue
+        val base = (lineCy[li] / w0.vh * rows).toInt()
+        val row = listOf(base, base + 1, base - 1).firstOrNull { it in 0 until rows && it !in owner } ?: continue
+        owner.add(row)
+        var cursor = -1
+        var prevEnd = 0f
+        for (w in line) {
+            val c0 = (w.x / w.vw * cols).toInt()
+            var col = c0
+            if (cursor >= 0) {
+                // words of one sentence are packed together; far-apart columns keep their place
+                val pxPerChar = w.w / w.t.codePointCount(0, w.t.length)
+                if (w.x - prevEnd < 2.2f * pxPerChar || cursor > col) col = cursor
+            }
+            val st = Style(fg = textColor(w.r, w.g, w.b, s.color), bold = s.bold)
+            var i = 0
+            while (i < w.t.length) {
+                val cp = w.t.codePointAt(i)
+                i += Character.charCount(cp)
+                val cw = runeWidth(cp)
+                if (cw == 0) continue
+                if (col < 0 || col + cw > cols) break
+                out[row][col] = Cell(cp, st)
+                if (cw == 2) out[row][col + 1] = Cell(0, st)
+                col += cw
+            }
+            cursor = col + 1
+            prevEnd = w.x + w.w
         }
-        cursor[row] = col + 1
-        prevEnd[row] = w.x + w.w
     }
     return out.toList()
 }

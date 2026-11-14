@@ -11,7 +11,8 @@ data class LiveSettings(
     val contrast: Int = 0,           // -4..4
     val pageWidth: Int = 0,          // CSS px the page lays out at, 0 = auto
     val quality: Int = 2,            // sampling resolution 1..3
-    val fps: Int = 8,
+    val renderScale: Int = 40,       // % of screen size the page is rendered at (lower = less memory)
+    val fps: Int = 6,
     val mobile: Boolean = true,
     val search: String = "duckduckgo",
     val home: String = "https://duckduckgo.com",
@@ -21,6 +22,7 @@ data class LiveSettings(
         val INVERTS = listOf("auto", "on", "off")
         val WIDTHS = listOf(0, 320, 360, 480, 640, 800, 1024, 1280)
         val FPSES = listOf(3, 5, 8, 12, 20)
+        val SCALES = listOf(25, 40, 60, 100)
         val SEARCHES = listOf("duckduckgo", "google", "naver", "bing")
         val STYLE_DESC = mapOf(
             "ascii" to "ASCII by brightness",

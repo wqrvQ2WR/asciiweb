@@ -80,8 +80,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ThumbDecoder.install()
-        // draw() renders the whole document, so newly scrolled areas are never captured blank
-        runCatching { android.webkit.WebView.enableSlowWholeDocumentDraw() }
         enableEdgeToEdge()
         if (savedInstanceState == null) pendingStart = intent?.dataString
         live.initialUrl = pendingStart ?: live.lastUrl()
@@ -302,6 +300,9 @@ class MainActivity : ComponentActivity() {
                     }
                     SettingRow("Page width (px)", if (s.pageWidth == 0) "auto" else s.pageWidth.toString()) {
                         live.update(s.copy(pageWidth = next(com.hayoonjae.asciiweb.engine.LiveSettings.WIDTHS, s.pageWidth)))
+                    }
+                    SettingRow("Render scale (less memory)", "${s.renderScale}%") {
+                        live.update(s.copy(renderScale = next(com.hayoonjae.asciiweb.engine.LiveSettings.SCALES, s.renderScale)))
                     }
                     SettingRow("Sampling quality", "x${s.quality}") { live.update(s.copy(quality = if (s.quality >= 3) 1 else s.quality + 1)) }
                     SettingRow("Frame rate (fps)", s.fps.toString()) {

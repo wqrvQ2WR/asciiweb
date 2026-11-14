@@ -96,7 +96,8 @@ func textColor(r, g, b int, color bool) uint32 {
 }
 
 // OverlayText writes the page's words onto the grid as real characters.
-// The art under each word is cleared so the text stays clean.
+// Words are grouped into text lines first, each line owns one grid row, and
+// the art under each word is cleared so the text stays clean.
 func OverlayText(grid []engine.Line, words []Word, s Settings, depth int) []engine.Line {
 	if len(words) == 0 || len(grid) == 0 {
 		return grid
@@ -107,75 +108,85 @@ func OverlayText(grid []engine.Line, words []Word, s Settings, depth int) []engi
 	for i := range grid {
 		out[i] = append(engine.Line(nil), grid[i]...)
 	}
-	sort.SliceStable(words, func(i, j int) bool {
-		if math.Abs(words[i].Y-words[j].Y) > words[i].H/2 {
-			return words[i].Y < words[j].Y
+	cy := func(w Word) float64 { return w.Y + w.H/2 }
+	ws := append([]Word(nil), words...)
+	sort.Slice(ws, func(i, j int) bool { return cy(ws[i]) < cy(ws[j]) })
+	// group into lines by vertical centre
+	var lines [][]Word
+	var lineCy []float64
+	for _, w := range ws {
+		n := len(lines)
+		if n > 0 && math.Abs(cy(w)-lineCy[n-1]) <= 0.6*math.Max(w.H, lines[n-1][0].H) {
+			lines[n-1] = append(lines[n-1], w)
+			continue
 		}
-		return words[i].X < words[j].X
-	})
-	rowLine := map[int]float64{} // row -> y of the text line that owns it
-	cursor := map[int]int{}      // row -> next free column
-	prevEnd := map[int]float64{} // row -> right edge (px) of the last word placed
-	for _, w := range words {
+		lines = append(lines, []Word{w})
+		lineCy = append(lineCy, cy(w))
+	}
+	// pass 1: clear the art under every word (so later clears never erase earlier text)
+	for _, w := range ws {
 		if w.VW <= 0 || w.VH <= 0 {
 			continue
 		}
-		r0 := int(w.Y / w.VH * float64(rows))
-		r1 := int((w.Y + w.H) / w.VH * float64(rows))
-		row := int((w.Y + w.H/2) / w.VH * float64(rows))
-		if row < 0 || row >= rows {
-			continue
-		}
-		if y, used := rowLine[row]; used && math.Abs(y-w.Y) > w.H/2 {
-			row++ // another line already owns this row: use the one below
-			if row >= rows {
-				continue
-			}
-			if y2, used2 := rowLine[row]; used2 && math.Abs(y2-w.Y) > w.H/2 {
-				continue
-			}
-		}
-		rowLine[row] = w.Y
-		c0 := int(w.X / w.VW * float64(cols))
-		c1 := int((w.X + w.W) / w.VW * float64(cols))
-		// clear the art under the word's box
+		r0, r1 := int(w.Y/w.VH*float64(rows)), int((w.Y+w.H)/w.VH*float64(rows))
+		c0, c1 := int(w.X/w.VW*float64(cols)), int((w.X+w.W)/w.VW*float64(cols))
 		for r := r0; r <= r1 && r < rows; r++ {
-			if r < 0 {
-				continue
-			}
 			for c := c0; c <= c1 && c < cols; c++ {
-				if c >= 0 {
+				if r >= 0 && c >= 0 {
 					out[r][c] = engine.Cell{R: ' '}
 				}
 			}
 		}
-		col := c0
-		if cur, ok := cursor[row]; ok {
-			// words of one sentence are packed together; far-apart columns keep their place
-			pxPerChar := w.W / float64(len([]rune(w.T)))
-			if gap := w.X - prevEnd[row]; gap < 2.2*pxPerChar {
-				col = cur
-			} else if cur > col {
-				col = cur
-			}
+	}
+	// pass 2: write the text
+	owner := map[int]bool{}
+	for li, line := range lines {
+		sort.Slice(line, func(i, j int) bool { return line[i].X < line[j].X })
+		w0 := line[0]
+		if w0.VW <= 0 || w0.VH <= 0 {
+			continue
 		}
-		st := engine.Style{FG: textColor(w.R, w.G, w.B, color), Bold: s.Bold}
-		for _, ch := range w.T {
-			cw := engine.RuneWidth(ch)
-			if cw == 0 {
-				continue
-			}
-			if col < 0 || col+cw > cols {
+		row := int(lineCy[li] / w0.VH * float64(rows))
+		pick := -1
+		for _, r := range []int{row, row + 1, row - 1} {
+			if r >= 0 && r < rows && !owner[r] {
+				pick = r
 				break
 			}
-			out[row][col] = engine.Cell{R: ch, S: st}
-			if cw == 2 {
-				out[row][col+1] = engine.Cell{R: 0, S: st}
-			}
-			col += cw
 		}
-		cursor[row] = col + 1
-		prevEnd[row] = w.X + w.W
+		if pick < 0 {
+			continue
+		}
+		row = pick
+		owner[row] = true
+		cursor, prevEnd := -1, 0.0
+		for _, w := range line {
+			c0 := int(w.X / w.VW * float64(cols))
+			col := c0
+			if cursor >= 0 {
+				// words of one sentence are packed together; far-apart columns keep their place
+				pxPerChar := w.W / float64(len([]rune(w.T)))
+				if gap := w.X - prevEnd; gap < 2.2*pxPerChar || cursor > col {
+					col = cursor
+				}
+			}
+			st := engine.Style{FG: textColor(w.R, w.G, w.B, color), Bold: s.Bold}
+			for _, ch := range w.T {
+				cw := engine.RuneWidth(ch)
+				if cw == 0 {
+					continue
+				}
+				if col < 0 || col+cw > cols {
+					break
+				}
+				out[row][col] = engine.Cell{R: ch, S: st}
+				if cw == 2 {
+					out[row][col+1] = engine.Cell{R: 0, S: st}
+				}
+				col += cw
+			}
+			cursor, prevEnd = col+1, w.X+w.W
+		}
 	}
 	return out
 }
@@ -191,7 +202,7 @@ func (s *Session) textLoop(kick <-chan struct{}) {
 		case <-s.ctx.Done():
 			return
 		}
-		time.Sleep(120 * time.Millisecond) // let rapid changes settle, coalesce kicks
+		time.Sleep(350 * time.Millisecond) // at most ~3 text reads a second; coalesce kicks
 		for len(kick) > 0 {
 			<-kick
 		}

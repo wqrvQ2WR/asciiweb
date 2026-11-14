@@ -95,6 +95,10 @@ class GridPaints(val px: Float) {
                 fill.color = fg
                 c.drawRect(x0, 0f, j * cellW, lineH, fill)
             }
+            if (s0.bg == 0 && !rev && !s0.under && (i until j).all { line[it].r == ' '.code || line[it].r == 0 }) {
+                i = j
+                continue
+            }
             val textColor = if (rev) BG_COLOR else fg
             p.color = textColor
             stroke.color = textColor

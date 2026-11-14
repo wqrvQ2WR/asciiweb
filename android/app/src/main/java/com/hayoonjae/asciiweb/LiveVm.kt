@@ -16,7 +16,8 @@ class LiveVm(app: Application) : AndroidViewModel(app) {
 
     var settings by mutableStateOf(load())
         private set
-    var lines by mutableStateOf<List<Line>>(emptyList())
+    var art by mutableStateOf<List<Line>>(emptyList())
+    var stamp = 0 // bumps when the captured screen changed
     var urlText by mutableStateOf("")
     var title by mutableStateOf("")
     var loading by mutableStateOf(false)
@@ -40,6 +41,7 @@ class LiveVm(app: Application) : AndroidViewModel(app) {
             contrast = prefs.getInt("l_contrast", d.contrast),
             pageWidth = prefs.getInt("l_width", d.pageWidth),
             quality = prefs.getInt("l_quality", d.quality),
+            renderScale = prefs.getInt("l_scale", d.renderScale),
             fps = prefs.getInt("l_fps", d.fps),
             mobile = prefs.getBoolean("l_mobile", d.mobile),
             search = prefs.getString("l_search", d.search) ?: d.search,
@@ -53,7 +55,7 @@ class LiveVm(app: Application) : AndroidViewModel(app) {
         prefs.edit()
             .putBoolean("l_real", s.real).putString("l_style", s.style).putBoolean("l_color", s.color)
             .putBoolean("l_bold", s.bold).putBoolean("l_text", s.text).putString("l_invert", s.invert).putInt("l_contrast", s.contrast)
-            .putInt("l_width", s.pageWidth).putInt("l_quality", s.quality).putInt("l_fps", s.fps)
+            .putInt("l_width", s.pageWidth).putInt("l_quality", s.quality).putInt("l_scale", s.renderScale).putInt("l_fps", s.fps)
             .putBoolean("l_mobile", s.mobile).putString("l_search", s.search).putString("l_home", s.home)
             .apply()
         epoch++

@@ -24,6 +24,7 @@
 | Contrast | -4 ~ +4 |
 | Page width (화질) | 페이지 레이아웃 폭(CSS px). auto는 칸 수에 맞춰 자동 (한 글자가 1~2칸). 좁을수록 글자가 커진다 |
 | Frame quality / Sampling | JPEG 품질(데스크톱), 샘플링 배율(안드로이드) |
+| Render scale | (안드로이드) 페이지를 화면 크기의 몇 %로 그릴지. 낮을수록 GPU 메모리가 줄어든다 (기본 40%) |
 | Frame rate | 초당 프레임 상한 |
 | Mobile sites | 모바일 UA |
 | Search engine | duckduckgo, google, naver, bing |
@@ -61,10 +62,16 @@ Chrome 계열 브라우저가 없으면 자동으로 텍스트 모드로 시작�
 `android/` 를 Android Studio로 열거나 `cd android && ./gradlew assembleDebug`. 릴리스에 APK가 있다.
 기본은 진짜 렌더링. 화면을 탭하면 그대로 페이지에 전달되고 키보드로 입력한다. 설정에서 텍스트 재배치 모드로 바꿀 수 있다.
 
-## 메모리
+## 메모리 (솔직한 수치)
 
-위키백과 문서(이미지 수십 장 포함)를 열었을 때 최대 약 31MB, 이미지 없는 Hacker News는 약 21MB (맥 arm64, `/usr/bin/time -l`).
-이미지는 받자마자 최대 216x400 RGB로 줄이고 원본은 버린다.
+| 모드 | 측정 |
+|---|---|
+| 텍스트 모드 `-text` (맥) | 위키백과 약 31MB, 이미지 없는 HN 약 21MB |
+| 진짜 렌더링, 맥 | 앱 약 90MB + Chrome 약 430~630MB (trickcal.com 같은 무거운 페이지 기준) |
+| 진짜 렌더링, 안드로이드 | 앱 약 255MB + 시스템 WebView 프로세스 약 250MB (렌더 배율 40%, 배율 100%에서는 앱이 약 585MB) |
+
+진짜 렌더링은 실제 브라우저 엔진을 쓰는 만큼 램이 든다. 램이 중요하면 `-text`(맥/윈도우)를 쓰면 된다.
+화면이 안 바뀌면 변환과 글자 추출을 건너뛰고, 데스크톱은 종료할 때 Chrome이 남지 않게 정리한다.
 
 ## 텍스트 모드 (`-text`)
 
