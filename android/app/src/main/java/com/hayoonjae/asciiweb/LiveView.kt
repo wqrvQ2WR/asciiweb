@@ -62,6 +62,7 @@ object LiveWeb {
     fun create(ctx: Context, vm: LiveVm): WebView {
         val w = WebView(ctx)
         w.setBackgroundColor(AColor.WHITE)
+        w.setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null) // lets draw() capture it reliably, also after scrolling
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(w, true)
         w.webViewClient = object : WebViewClient() {
@@ -136,6 +137,7 @@ fun LiveView(vm: LiveVm, textSp: Float, modifier: Modifier = Modifier) {
                         val c = NativeCanvas(bmp)
                         c.drawColor(AColor.WHITE)
                         c.scale(bw / web.width.toFloat(), bh / web.height.toFloat())
+                        c.translate(-web.scrollX.toFloat(), -web.scrollY.toFloat())
                         web.draw(c)
                         bmp.getPixels(pixels, 0, bw, 0, 0, bw, bh)
                         val snap = pixels.copyOf()

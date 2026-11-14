@@ -80,6 +80,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ThumbDecoder.install()
+        // draw() renders the whole document, so newly scrolled areas are never captured blank
+        runCatching { android.webkit.WebView.enableSlowWholeDocumentDraw() }
         enableEdgeToEdge()
         if (savedInstanceState == null) pendingStart = intent?.dataString
         live.initialUrl = pendingStart ?: live.lastUrl()
