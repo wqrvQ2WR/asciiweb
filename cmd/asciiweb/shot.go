@@ -17,6 +17,12 @@ func shotFrame(set render.Settings, input string, cols int) error {
 		rows = 10
 	}
 	w := set.PageWidth
+	if w == 0 {
+		w = cols * 5
+		if w < 360 {
+			w = 360
+		}
+	}
 	h := 2 * w * rows / cols
 	s, err := render.Start(set, w, h)
 	if err != nil {
@@ -51,7 +57,12 @@ done:
 	if os.Getenv("SHOT_COLOR") != "" {
 		depth = engine.TrueColor
 	}
-	for _, l := range render.Convert(img, cols, rows, set, depth) {
+	grid := render.Convert(img, cols, rows, set, depth)
+	if set.Text {
+		time.Sleep(2 * time.Second)
+		grid = render.OverlayText(grid, s.Words(), set, depth)
+	}
+	for _, l := range grid {
 		if depth == engine.NoColor {
 			fmt.Println(strings.TrimRight(l.String(), " "))
 		} else {

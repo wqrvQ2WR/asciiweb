@@ -24,6 +24,8 @@ class LiveVm(app: Application) : AndroidViewModel(app) {
     var showSettings by mutableStateOf(false)
     var epoch by mutableIntStateOf(0) // bumps when the capture must be redone
     var webView: WebView? = null
+    var words by mutableStateOf<List<com.hayoonjae.asciiweb.engine.Word>>(emptyList())
+    var cssWidth = 0
     var initialUrl: String? = null
 
     private fun load(): LiveSettings {
@@ -33,6 +35,7 @@ class LiveVm(app: Application) : AndroidViewModel(app) {
             style = prefs.getString("l_style", d.style) ?: d.style,
             color = prefs.getBoolean("l_color", d.color),
             bold = prefs.getBoolean("l_bold", d.bold),
+            text = prefs.getBoolean("l_text", d.text),
             invert = prefs.getString("l_invert", d.invert) ?: d.invert,
             contrast = prefs.getInt("l_contrast", d.contrast),
             pageWidth = prefs.getInt("l_width", d.pageWidth),
@@ -45,17 +48,17 @@ class LiveVm(app: Application) : AndroidViewModel(app) {
     }
 
     fun update(s: LiveSettings) {
-        val reload = s.pageWidth != settings.pageWidth || s.mobile != settings.mobile
+        val reload = s.mobile != settings.mobile
         settings = s
         prefs.edit()
             .putBoolean("l_real", s.real).putString("l_style", s.style).putBoolean("l_color", s.color)
-            .putBoolean("l_bold", s.bold).putString("l_invert", s.invert).putInt("l_contrast", s.contrast)
+            .putBoolean("l_bold", s.bold).putBoolean("l_text", s.text).putString("l_invert", s.invert).putInt("l_contrast", s.contrast)
             .putInt("l_width", s.pageWidth).putInt("l_quality", s.quality).putInt("l_fps", s.fps)
             .putBoolean("l_mobile", s.mobile).putString("l_search", s.search).putString("l_home", s.home)
             .apply()
         epoch++
         if (reload) {
-            LiveWeb.apply(webView ?: return, s, getApplication())
+            LiveWeb.apply(webView ?: return, s, getApplication(), cssWidth)
             webView?.reload()
         }
     }

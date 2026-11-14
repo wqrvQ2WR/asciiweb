@@ -3,7 +3,7 @@
 웹이 보이는 그대로를 글자로 그리는 브라우저.
 기본 동작은 일반 브라우저이고(클릭, 스크롤, 입력), 화면만 문자로 렌더링한다. 신개념 w3m.
 
-두 가지 모드:
+두 가지 모드 (진짜 렌더링은 Chrome/WebView 엔진이라 HTML5와 CSS3를 그대로 지원한다. 텍스트 모드는 인라인 스타일 정도만):
 
 - **진짜 렌더링 (기본):** 실제 브라우저 엔진이 그린 화면을 글자로 변환한다.
   - 맥/윈도우/리눅스: 설치된 Chrome, Edge, Brave를 CDP로 제어 (Go 단일 실행 파일)
@@ -18,10 +18,11 @@
 |---|---|
 | Style (표현 방식) | ascii, detail(70단계), blocks(반블록 진짜 픽셀), braille(점자 2x4) |
 | Color | auto, none, 256, true (안드로이드는 on/off) |
+| Real text overlay | 페이지의 글자를 진짜 문자로 찍어서 또렷하게 (기본 켜짐). 이미지와 배경만 ASCII 아트 |
 | Bold characters | 글자를 굵게 (기본 켜짐) |
 | Invert | auto, on, off (밝은 페이지의 어두운 잉크를 진하게) |
 | Contrast | -4 ~ +4 |
-| Page width (화질) | 페이지 레이아웃 폭(CSS px). 좁을수록 글자가 커져서 읽기 쉽다 |
+| Page width (화질) | 페이지 레이아웃 폭(CSS px). auto는 칸 수에 맞춰 자동 (한 글자가 1~2칸). 좁을수록 글자가 커진다 |
 | Frame quality / Sampling | JPEG 품질(데스크톱), 샘플링 배율(안드로이드) |
 | Frame rate | 초당 프레임 상한 |
 | Mobile sites | 모바일 UA |

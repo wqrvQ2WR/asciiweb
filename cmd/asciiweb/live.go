@@ -74,10 +74,16 @@ func (u *live) buildItems() {
 	u.items = []setItem{
 		{"Style", func() string { return s.Style + "  (" + render.StyleDesc[s.Style] + ")" }, func(d int) { s.Style = cycleS(s.Style, render.Styles, d) }, false},
 		{"Color", func() string { return s.Color }, func(d int) { s.Color = cycleS(s.Color, render.Colors, d) }, false},
+		{"Real text overlay", func() string { return onoff(s.Text) }, func(d int) { s.Text = !s.Text }, false},
 		{"Bold characters", func() string { return onoff(s.Bold) }, func(d int) { s.Bold = !s.Bold }, false},
 		{"Invert (dark ink on light page)", func() string { return s.Invert }, func(d int) { s.Invert = cycleS(s.Invert, render.Inverts, d) }, false},
 		{"Contrast", func() string { return fmt.Sprintf("%+d", s.Contrast) }, func(d int) { s.Contrast += d; s.Normalize() }, false},
-		{"Page width (px)", func() string { return fmt.Sprint(s.PageWidth) }, func(d int) { s.PageWidth = cycleI(s.PageWidth, render.Widths, d) }, true},
+		{"Page width (px)", func() string {
+			if s.PageWidth == 0 {
+				return "auto"
+			}
+			return fmt.Sprint(s.PageWidth)
+		}, func(d int) { s.PageWidth = cycleI(s.PageWidth, render.Widths, d) }, true},
 		{"Frame quality (JPEG)", func() string { return fmt.Sprint(s.JPEG) }, func(d int) { s.JPEG = cycleI(s.JPEG, render.JPEGs, d) }, true},
 		{"Frame rate (fps)", func() string { return fmt.Sprint(s.FPS) }, func(d int) { s.FPS = cycleI(s.FPS, render.FPSes, d) }, true},
 		{"Mobile sites", func() string { return onoff(s.Mobile) }, func(d int) { s.Mobile = !s.Mobile }, true},
@@ -90,6 +96,12 @@ func (u *live) frameRows() int { return u.rows - 1 }
 
 func (u *live) viewport() (int, int) {
 	w := u.set.PageWidth
+	if w == 0 { // auto: about 5 px per cell, so a character spans one to two cells
+		w = u.cols * 5
+		if w < 360 {
+			w = 360
+		}
+	}
 	h := 2 * w * u.frameRows() / u.cols
 	if h < 200 {
 		h = 200
@@ -207,6 +219,9 @@ func (u *live) rebuild() {
 		return
 	}
 	u.grid = render.Convert(u.img, u.cols, u.frameRows(), u.set, u.depth)
+	if u.set.Text {
+		u.grid = render.OverlayText(u.grid, u.sess.Words(), u.set, u.depth)
+	}
 }
 
 // ---- input ----

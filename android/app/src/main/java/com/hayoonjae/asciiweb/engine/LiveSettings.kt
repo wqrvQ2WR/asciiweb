@@ -6,9 +6,10 @@ data class LiveSettings(
     val style: String = "ascii",     // ascii, detail, blocks, braille
     val color: Boolean = true,
     val bold: Boolean = true,
+    val text: Boolean = true,        // draw page text as real characters
     val invert: String = "auto",     // auto, on, off
     val contrast: Int = 0,           // -4..4
-    val pageWidth: Int = 480,        // CSS px the page lays out at
+    val pageWidth: Int = 0,          // CSS px the page lays out at, 0 = auto
     val quality: Int = 2,            // sampling resolution 1..3
     val fps: Int = 8,
     val mobile: Boolean = true,
@@ -18,7 +19,7 @@ data class LiveSettings(
     companion object {
         val STYLES = listOf("ascii", "detail", "blocks", "braille")
         val INVERTS = listOf("auto", "on", "off")
-        val WIDTHS = listOf(320, 360, 480, 640, 800, 1024, 1280)
+        val WIDTHS = listOf(0, 320, 360, 480, 640, 800, 1024, 1280)
         val FPSES = listOf(3, 5, 8, 12, 20)
         val SEARCHES = listOf("duckduckgo", "google", "naver", "bing")
         val STYLE_DESC = mapOf(

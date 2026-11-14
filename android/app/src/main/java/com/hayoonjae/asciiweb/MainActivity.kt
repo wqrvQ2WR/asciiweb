@@ -292,6 +292,7 @@ class MainActivity : ComponentActivity() {
                         live.update(s.copy(style = next(com.hayoonjae.asciiweb.engine.LiveSettings.STYLES, s.style)))
                     }
                     SettingRow("Color", if (s.color) "on" else "off") { live.update(s.copy(color = !s.color)) }
+                    SettingRow("Real text overlay", if (s.text) "on" else "off") { live.update(s.copy(text = !s.text)) }
                     SettingRow("Bold characters", if (s.bold) "on" else "off") { live.update(s.copy(bold = !s.bold)) }
                     SettingRow("Invert (dark ink on light page)", s.invert) {
                         live.update(s.copy(invert = next(com.hayoonjae.asciiweb.engine.LiveSettings.INVERTS, s.invert)))
@@ -299,7 +300,7 @@ class MainActivity : ComponentActivity() {
                     SettingRow("Contrast", "%+d".format(s.contrast)) {
                         live.update(s.copy(contrast = if (s.contrast >= 4) -4 else s.contrast + 1))
                     }
-                    SettingRow("Page width (px)", s.pageWidth.toString()) {
+                    SettingRow("Page width (px)", if (s.pageWidth == 0) "auto" else s.pageWidth.toString()) {
                         live.update(s.copy(pageWidth = next(com.hayoonjae.asciiweb.engine.LiveSettings.WIDTHS, s.pageWidth)))
                     }
                     SettingRow("Sampling quality", "x${s.quality}") { live.update(s.copy(quality = if (s.quality >= 3) 1 else s.quality + 1)) }

@@ -31,7 +31,10 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.hayoonjae.asciiweb.engine.LiveSettings
+import com.hayoonjae.asciiweb.engine.TEXT_SCRIPT
+import com.hayoonjae.asciiweb.engine.Word
 import com.hayoonjae.asciiweb.engine.convertScreen
+import com.hayoonjae.asciiweb.engine.overlayText
 import com.hayoonjae.asciiweb.engine.subPixels
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -42,7 +45,7 @@ object LiveWeb {
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 
     @SuppressLint("SetJavaScriptEnabled")
-    fun apply(w: WebView, s: LiveSettings, ctx: Context) {
+    fun apply(w: WebView, s: LiveSettings, ctx: Context, cssWidth: Int) {
         val st = w.settings
         st.javaScriptEnabled = true
         st.domStorageEnabled = true
@@ -55,7 +58,7 @@ object LiveWeb {
         // layout width in CSS px = view width in dp * 100 / scale
         val dm = ctx.resources.displayMetrics
         val viewDp = (w.width.takeIf { it > 0 } ?: dm.widthPixels) / dm.density
-        w.setInitialScale((viewDp * 100f / s.pageWidth).toInt().coerceIn(20, 400))
+        w.setInitialScale((viewDp * 100f / (if (cssWidth > 0) cssWidth else 360)).toInt().coerceIn(20, 400))
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -87,7 +90,7 @@ object LiveWeb {
                 vm.title = t
             }
         }
-        apply(w, vm.settings, ctx)
+        apply(w, vm.settings, ctx, if (vm.cssWidth > 0) vm.cssWidth else 360)
         vm.webView?.destroy()
         vm.webView = w
         w.loadUrl(vm.initialUrl ?: vm.urlText.ifEmpty { vm.settings.home })
@@ -116,9 +119,24 @@ fun LiveView(vm: LiveVm, textSp: Float, modifier: Modifier = Modifier) {
         val my = vh / (rows * paints.lineH)
 
         AndroidView(factory = { web }, modifier = Modifier.fillMaxSize(), update = {})
-        LaunchedEffect(vw, s.pageWidth, s.mobile) {
+        // auto width: about 5 CSS px per cell, so a character spans one to two cells
+        val cssW = if (s.pageWidth == 0) maxOf(320, cols * 5) else s.pageWidth
+        LaunchedEffect(vw, cssW, s.mobile) {
             delay(150)
-            LiveWeb.apply(web, vm.settings, ctx)
+            val changed = vm.cssWidth != 0 && vm.cssWidth != cssW
+            vm.cssWidth = cssW
+            LiveWeb.apply(web, vm.settings, ctx, cssW)
+            if (changed) web.reload()
+        }
+        // real page text, refreshed several times a second
+        LaunchedEffect(s.text) {
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                while (s.text) {
+                    web.evaluateJavascript(TEXT_SCRIPT) { res -> vm.words = parseWords(res) }
+                    delay(300)
+                }
+                vm.words = emptyList()
+            }
         }
 
         LaunchedEffect(cols, rows, s, vm.epoch) {
@@ -142,7 +160,8 @@ fun LiveView(vm: LiveVm, textSp: Float, modifier: Modifier = Modifier) {
                         bmp.getPixels(pixels, 0, bw, 0, 0, bw, bh)
                         val snap = pixels.copyOf()
                         val grid = withContext(Dispatchers.Default) { convertScreen(snap, bw, bh, cols, rows, s) }
-                        if (grid != vm.lines) vm.lines = grid
+                        val shown = if (s.text) overlayText(grid, vm.words, s) else grid
+                        if (shown != vm.lines) vm.lines = shown
                     }
                     delay(1000L / s.fps)
                 }
@@ -175,5 +194,27 @@ fun LiveView(vm: LiveVm, textSp: Float, modifier: Modifier = Modifier) {
                 }
             }
         }
+    }
+}
+
+/** Decodes evaluateJavascript's result (a JSON string literal holding our JSON) into words. */
+private fun parseWords(res: String?): List<Word> {
+    if (res.isNullOrEmpty() || res == "null") return emptyList()
+    return try {
+        val inner = org.json.JSONTokener(res).nextValue() as? String ?: return emptyList()
+        val o = org.json.JSONObject(inner)
+        val vw = o.getDouble("w").toFloat()
+        val vh = o.getDouble("h").toFloat()
+        val a = o.getJSONArray("words")
+        List(a.length()) { i ->
+            val j = a.getJSONObject(i)
+            Word(
+                j.getString("t"), j.getDouble("x").toFloat(), j.getDouble("y").toFloat(),
+                j.getDouble("w").toFloat(), j.getDouble("h").toFloat(),
+                j.getInt("r"), j.getInt("g"), j.getInt("b"), vw, vh,
+            )
+        }
+    } catch (e: Exception) {
+        emptyList()
     }
 }

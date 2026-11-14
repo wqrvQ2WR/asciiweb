@@ -73,6 +73,8 @@ type Session struct {
 	W, H   int
 	set    Settings
 	notify chan struct{}
+	words  []Word
+	kick   chan struct{}
 }
 
 // Start launches the browser at w x h CSS pixels and opens the home page.
@@ -94,7 +96,7 @@ func Start(set Settings, w, h int) (*Session, error) {
 	)
 	actx, cancelA := chromedp.NewExecAllocator(context.Background(), opts...)
 	ctx, cancelC := chromedp.NewContext(actx)
-	s := &Session{ctx: ctx, W: w, H: h, set: set, ops: make(chan func(), 256), notify: make(chan struct{}, 1)}
+	s := &Session{ctx: ctx, W: w, H: h, set: set, ops: make(chan func(), 256), notify: make(chan struct{}, 1), kick: make(chan struct{}, 4)}
 	s.cancel = func() { cancelC(); cancelA() }
 
 	chromedp.ListenTarget(ctx, func(ev interface{}) {
@@ -130,6 +132,7 @@ document.addEventListener('click',function(e){var a=e.target&&e.target.closest&&
 	}
 	go s.worker()
 	go s.poll()
+	go s.textLoop(s.kick)
 	return s, nil
 }
 
@@ -157,6 +160,10 @@ func (s *Session) onFrame(data string) {
 	s.mu.Unlock()
 	select {
 	case s.notify <- struct{}{}:
+	default:
+	}
+	select {
+	case s.kick <- struct{}{}:
 	default:
 	}
 }

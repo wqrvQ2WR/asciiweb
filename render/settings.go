@@ -17,6 +17,7 @@ type Settings struct {
 	Invert    string `json:"invert"`     // auto, on, off
 	Contrast  int    `json:"contrast"`   // -4..4
 	Bold      bool   `json:"bold"`       // draw characters in bold
+	Text      bool   `json:"text"`       // draw page text as real characters
 	PageWidth int    `json:"page_width"` // CSS pixels the page lays out at
 	JPEG      int    `json:"jpeg"`       // frame quality 30..95
 	FPS       int    `json:"fps"`        // max frames per second
@@ -26,7 +27,7 @@ type Settings struct {
 }
 
 func Default() Settings {
-	return Settings{Bold: true, Style: "ascii", Color: "auto", Invert: "auto", PageWidth: 480, JPEG: 70, FPS: 10, Search: "duckduckgo", Home: "https://duckduckgo.com"}
+	return Settings{Bold: true, Text: true, Style: "ascii", Color: "auto", Invert: "auto", PageWidth: 0, JPEG: 70, FPS: 10, Search: "duckduckgo", Home: "https://duckduckgo.com"}
 }
 
 // Option lists shown in the settings screen.
@@ -34,7 +35,7 @@ var (
 	Styles    = []string{"ascii", "detail", "blocks", "braille"}
 	Colors    = []string{"auto", "none", "256", "true"}
 	Inverts   = []string{"auto", "on", "off"}
-	Widths    = []int{360, 480, 640, 800, 1024, 1280, 1600}
+	Widths    = []int{0, 360, 480, 640, 800, 1024, 1280, 1600}
 	JPEGs     = []int{30, 50, 70, 85, 95}
 	FPSes     = []int{3, 5, 10, 15, 24}
 	Searches  = []string{"duckduckgo", "google", "naver", "bing"}
@@ -61,7 +62,9 @@ func (s *Settings) Normalize() {
 		s.Search = d.Search
 	}
 	s.Contrast = clamp(s.Contrast, -4, 4)
-	s.PageWidth = clamp(s.PageWidth, 320, 1920)
+	if s.PageWidth != 0 {
+		s.PageWidth = clamp(s.PageWidth, 320, 1920)
+	}
 	s.JPEG = clamp(s.JPEG, 20, 100)
 	s.FPS = clamp(s.FPS, 1, 30)
 	if strings.TrimSpace(s.Home) == "" {
