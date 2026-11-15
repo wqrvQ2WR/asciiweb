@@ -48,6 +48,24 @@ while((node=tw.nextNode())&&n<1500){
   out.push({t:mm[0],x:r.left,y:r.top,w:r.width,h:r.height,r:+m[1],g:+m[2],b:+m[3]}); n++;
  }
 }
+var fl=document.querySelectorAll('input,textarea'),cv=document.createElement('canvas').getContext('2d');
+for(var fi=0;fi<fl.length&&n<1500;fi++){
+ var f=fl[fi],ty=(f.type||'text').toLowerCase();
+ if(/^(hidden|checkbox|radio|submit|button|reset|image|file|range|color)$/.test(ty))continue;
+ var fr=f.getBoundingClientRect(); if(fr.width===0||fr.bottom<0||fr.top>H||fr.right<0||fr.left>W)continue;
+ var fc=getComputedStyle(f); if(fc.visibility==='hidden'||fc.display==='none')continue;
+ var val=f.value,ph=false; if(!val){val=f.getAttribute('placeholder')||'';ph=true;} if(!val)continue;
+ if(ty==='password'&&!ph)val=val.replace(/./g,'*');
+ cv.font=fc.font; var pl=parseFloat(fc.paddingLeft)+parseFloat(fc.borderLeftWidth),pt=parseFloat(fc.paddingTop)+parseFloat(fc.borderTopWidth);
+ var fm=/rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(fc.color)||[0,0,0,0],fh=parseFloat(fc.fontSize)*1.2||fr.height/2;
+ var inner=fr.width-pl*2,tot=cv.measureText(val).width,sh=(!ph&&tot>inner)?tot-inner:0;
+ var ty0=f.tagName==='TEXTAREA'?fr.top+pt:fr.top+(fr.height-fh)/2;
+ var fre=/\S+/g,fmm; while((fmm=fre.exec(val))&&n<1500){
+  var px=fr.left+pl+cv.measureText(val.slice(0,fmm.index)).width-sh,pw=cv.measureText(fmm[0]).width;
+  if(px<fr.left||px+pw>fr.right+1)continue;
+  out.push({t:fmm[0],x:px,y:ty0,w:pw,h:fh,r:ph?150:+fm[1],g:ph?150:+fm[2],b:ph?150:+fm[3]}); n++;
+ }
+}
 return JSON.stringify({w:W,h:H,sy:(window.pageYOffset||0),words:out});
 })()`
 
